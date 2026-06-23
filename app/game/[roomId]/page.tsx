@@ -5,18 +5,18 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-// ── World ─────────────────────────────────────────────────────────────────────
-const W = 900, H = 600
-const BAR_W = 110, BAR_H = 12, BAR_Y = H - 40
-const BALL_R = 8, SPEED = 5
+// ── World (portrait-first, mobile target) ─────────────────────────────────────
+const W = 400, H = 820
+const BAR_W = 100, BAR_H = 12, BAR_Y = H - 45
+const BALL_R = 7, SPEED = 5
 const SYNC_MS = 30, BALL_SYNC_MS = 80, LERP = 0.5
 
 // ── Bricks ───────────────────────────────────────────────────────────────────
-const COLS = 9, ROWS = 4
-const BGAP = 6
-const BW = Math.floor((W - 60 - (COLS - 1) * BGAP) / COLS)   // ≈ 88
-const BH = 22
-const BLEFT = 30, BTOP = 50
+const COLS = 5, ROWS = 4
+const BGAP = 5
+const BW = Math.floor((W - 60 - (COLS - 1) * BGAP) / COLS)   // = 64
+const BH = 24
+const BLEFT = 30, BTOP = 65
 const ROW_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e']
 
 function brickRect(i: number) {
@@ -45,7 +45,7 @@ function makeBall(seed: string, index: number): Ball {
   const angle = (rng() * 50 + 55) * (Math.PI / 180)   // 55°–105°
   const dir = rng() < 0.5 ? 1 : -1
   // Pelotas nuevas aparecen en X alternadas para repartir la presión
-  const startX = index === 0 ? W / 2 : W * (0.25 + (index % 3) * 0.25)
+  const startX = index === 0 ? W / 2 : W * (0.2 + (index % 4) * 0.2)
   return {
     x: startX, y: H - 100,
     vx: Math.cos(angle) * SPEED * dir,
@@ -169,9 +169,9 @@ function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, 
   ctx.fillRect(0, 0, W, H)
 
   // Subtle floor danger gradient
-  const grad = ctx.createLinearGradient(0, H - 70, 0, H)
+  const grad = ctx.createLinearGradient(0, H - 90, 0, H)
   grad.addColorStop(0, 'rgba(239,68,68,0)')
-  grad.addColorStop(1, 'rgba(239,68,68,0.08)')
+  grad.addColorStop(1, 'rgba(239,68,68,0.10)')
   ctx.fillStyle = grad
   ctx.fillRect(0, H - 70, W, 70)
 
@@ -230,7 +230,7 @@ function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, 
 
   // Score (faded center)
   ctx.globalAlpha = 0.18
-  ctx.font = 'bold 110px monospace'
+  ctx.font = 'bold 90px monospace'
   ctx.fillStyle = '#ffffff'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -244,13 +244,13 @@ function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, 
     ctx.shadowColor = '#f87171'
     ctx.shadowBlur = 24
     ctx.fillStyle = '#f87171'
-    ctx.font = 'bold 56px monospace'
+    ctx.font = 'bold 46px monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText('GAME OVER', W / 2, H / 2 - 44)
+    ctx.fillText('GAME OVER', W / 2, H / 2 - 40)
     ctx.shadowBlur = 0
     ctx.fillStyle = '#ffffff'
-    ctx.font = '30px monospace'
+    ctx.font = '26px monospace'
     ctx.fillText(`${s.score} punto${s.score !== 1 ? 's' : ''}`, W / 2, H / 2 + 16)
   }
 
@@ -318,8 +318,14 @@ export default function GamePage() {
       console.log(`[ROL] ${isP1Ref.current ? 'P1 (creador)' : 'P2 (unido)'} — sessionStorage: "${storedRole}"`)
 
       const c = canvasRef.current!
-      c.width = window.innerWidth
-      c.height = window.innerHeight
+      function sizeCanvas() {
+        c.width  = window.innerWidth
+        c.height = window.innerHeight
+      }
+      sizeCanvas()
+      window.addEventListener('resize', sizeCanvas)
+      // orientationchange fires before dimensions update on iOS
+      window.addEventListener('orientationchange', () => setTimeout(sizeCanvas, 150))
 
       const snap = freshSnap(roomId)
       snapRef.current = snap
@@ -475,8 +481,8 @@ export default function GamePage() {
   }, [ready])
 
   return (
-    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
-      <canvas ref={canvasRef} style={{ display: 'block', touchAction: 'none' }} />
+    <div style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
+      <canvas ref={canvasRef} style={{ display: 'block', touchAction: 'none', position: 'fixed', top: 0, left: 0 }} />
 
       {!ready && !error && (
         <div style={{ position: 'absolute', inset: 0, background: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
