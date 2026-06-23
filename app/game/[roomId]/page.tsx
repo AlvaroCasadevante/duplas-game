@@ -9,7 +9,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 const W = 400, H = 820
 const BAR_W = 100, BAR_H = 12, BAR_Y = H - 45
 const BALL_R = 7, SPEED = 5
-const SYNC_MS = 30, BALL_SYNC_MS = 80, LERP = 0.5
+const SYNC_MS = 30, BALL_SYNC_MS = 50, LERP = 0.5
 
 // ── Bricks ───────────────────────────────────────────────────────────────────
 const COLS = 5, ROWS = 4
@@ -358,7 +358,7 @@ export default function GamePage() {
         applyRestart(payload.count as number)
       })
 
-      // P2 receives authoritative balls+bricks from P1
+      // P2: recibe estado autoritativo de P1 (pelotas, ladrillos, score, game over)
       if (!isP1Ref.current) {
         ch.on('broadcast', { event: 'ball' }, ({ payload }) => {
           if (snapRef.current) {
@@ -438,29 +438,52 @@ export default function GamePage() {
         ? { ...s, p1x: myX, p2x: remX }
         : { ...s, p1x: remX, p2x: myX }
 
-      const next = tick(withBars)
-      snapRef.current = next
+      if (isP1Ref.current) {
+        // ── P1: única fuente de verdad ─────────────────────────────────────────
+        const next = tick(withBars)
+        snapRef.current = next
 
-      render(ctx, next, c.width, c.height, isP1Ref.current, namesRef.current)
+        if (next.over && !gameOverRef.current) {
+          gameOverRef.current = true
+          setGameOver(true)
+        }
 
-      if (next.over && !gameOverRef.current) {
-        gameOverRef.current = true
-        setGameOver(true)
-      }
-
-      // P1: añade pelota nueva cada 10s (máx. 4)
-      if (isP1Ref.current && !next.over) {
-        if (lastNewBallRef.current === 0) lastNewBallRef.current = now
-        if (now - lastNewBallRef.current >= 10000 && next.balls.length < 4) {
-          snapRef.current = {
-            ...next,
-            balls: [...next.balls, makeBall(roomId + restartCountRef.current, next.balls.length)],
+        // Añade pelota nueva cada 10s (máx. 4)
+        if (!next.over) {
+          if (lastNewBallRef.current === 0) lastNewBallRef.current = now
+          if (now - lastNewBallRef.current >= 10000 && next.balls.length < 4) {
+            snapRef.current = {
+              ...next,
+              balls: [...next.balls, makeBall(roomId + restartCountRef.current, next.balls.length)],
+            }
+            lastNewBallRef.current = now
           }
-          lastNewBallRef.current = now
+        }
+
+        // Broadcast estado completo cada BALL_SYNC_MS
+        if (now - lastBallSyncRef.current >= BALL_SYNC_MS) {
+          const snap = snapRef.current!
+          channelRef.current?.send({
+            type: 'broadcast',
+            event: 'ball',
+            payload: { balls: snap.balls, bricks: snap.bricks, score: snap.score, over: snap.over },
+          })
+          lastBallSyncRef.current = now
+        }
+      } else {
+        // ── P2: no corre física, solo actualiza posiciones de barras ───────────
+        snapRef.current = withBars
+
+        // Game over llega exclusivamente del broadcast de P1
+        if (withBars.over && !gameOverRef.current) {
+          gameOverRef.current = true
+          setGameOver(true)
         }
       }
 
-      // Broadcast bar position every SYNC_MS
+      render(ctx, snapRef.current, c.width, c.height, isP1Ref.current, namesRef.current)
+
+      // Ambos envían su barra cada SYNC_MS
       if (now - lastBarSyncRef.current >= SYNC_MS) {
         channelRef.current?.send({
           type: 'broadcast',
@@ -468,17 +491,6 @@ export default function GamePage() {
           payload: { x: myX },
         })
         lastBarSyncRef.current = now
-      }
-
-      // P1 broadcasts authoritative balls+bricks every BALL_SYNC_MS
-      if (isP1Ref.current && now - lastBallSyncRef.current >= BALL_SYNC_MS) {
-        const snap = snapRef.current!
-        channelRef.current?.send({
-          type: 'broadcast',
-          event: 'ball',
-          payload: { balls: snap.balls, bricks: snap.bricks, score: snap.score, over: snap.over },
-        })
-        lastBallSyncRef.current = now
       }
     }
 
