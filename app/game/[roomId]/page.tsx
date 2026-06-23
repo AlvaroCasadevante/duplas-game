@@ -12,26 +12,27 @@ const BALL_R = 7, SPEED = 5
 const SYNC_MS = 30, BALL_SYNC_MS = 50, LERP = 0.5
 
 // ── Bricks ───────────────────────────────────────────────────────────────────
-const COLS = 5, ROWS = 4
+const COLS = 5, ROWS = 5
 const BGAP = 5
 const BW = Math.floor((W - 60 - (COLS - 1) * BGAP) / COLS)   // = 64
-const BH = 24
-const BLEFT = 30, BTOP = 65
-const ROW_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e']
+const BH = 22
+const BLEFT = 30, BTOP = 55
+const ROW_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6']
+const BRICK_DESCENT = 0.06   // unidades lógicas por frame ≈ 1 fila cada ~8s
 
-function brickRect(i: number) {
+function brickRect(i: number, offsetY = 0) {
   const row = Math.floor(i / COLS), col = i % COLS
   return {
     x: BLEFT + col * (BW + BGAP),
-    y: BTOP + row * (BH + BGAP),
+    y: BTOP + row * (BH + BGAP) + offsetY,
     cx: BLEFT + col * (BW + BGAP) + BW / 2,
-    cy: BTOP + row * (BH + BGAP) + BH / 2,
+    cy: BTOP + row * (BH + BGAP) + BH / 2 + offsetY,
   }
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Ball = { x: number; y: number; vx: number; vy: number }
-type Snap = { balls: Ball[]; p1x: number; p2x: number; bricks: boolean[]; score: number; over: boolean }
+type Snap = { balls: Ball[]; p1x: number; p2x: number; bricks: boolean[]; brickOffset: number; score: number; over: boolean }
 
 // ── Deterministic seed ────────────────────────────────────────────────────────
 function seededRng(seed: string) {
@@ -59,6 +60,7 @@ function freshSnap(roomId: string, restart = 0): Snap {
     p1x: W / 4,
     p2x: (3 * W) / 4,
     bricks: Array(COLS * ROWS).fill(true),
+    brickOffset: 0,
     score: 0,
     over: false,
   }
@@ -98,7 +100,7 @@ function tickBall(ball: Ball, s: Snap, bricks: boolean[]): { ball: Ball; bricks:
   // Brick collisions (bricks is shared — primera pelota que toca un ladrillo lo rompe)
   for (let i = 0; i < bricks.length; i++) {
     if (!bricks[i]) continue
-    const { cx, cy } = brickRect(i)
+    const { cx, cy } = brickRect(i, s.brickOffset)
     const nearX = Math.max(cx - BW / 2, Math.min(cx + BW / 2, x))
     const nearY = Math.max(cy - BH / 2, Math.min(cy + BH / 2, y))
     const dx = x - nearX, dy = y - nearY
@@ -142,15 +144,27 @@ function tick(s: Snap): Snap {
   let over = false
   let bricks = [...s.bricks]
 
+  // Descenso del techo de ladrillos
+  const ROW_H = BH + BGAP
+  let brickOffset = s.brickOffset + BRICK_DESCENT
+  if (brickOffset >= ROW_H) {
+    brickOffset -= ROW_H
+    // Fila nueva en la cima, la fila más baja desaparece
+    bricks = [...Array(COLS).fill(true), ...bricks.slice(0, COLS * (ROWS - 1))]
+  }
+
+  // Las colisiones usan el offset actualizado
+  const sWithOffset = { ...s, brickOffset }
+
   const balls = s.balls.map(ball => {
-    const r = tickBall(ball, s, bricks)
+    const r = tickBall(ball, sWithOffset, bricks)
     bricks = r.bricks
     score += r.scored
     if (r.over) over = true
     return r.ball
   })
 
-  return { ...s, balls, bricks, score, over }
+  return { ...s, balls, bricks, brickOffset, score, over }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -179,7 +193,7 @@ function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, 
   for (let i = 0; i < s.bricks.length; i++) {
     if (!s.bricks[i]) continue
     const row = Math.floor(i / COLS)
-    const { x, y } = brickRect(i)
+    const { x, y } = brickRect(i, s.brickOffset)
     const color = ROW_COLORS[row]
     ctx.fillStyle = color
     ctx.shadowColor = color
@@ -366,6 +380,7 @@ export default function GamePage() {
               ...snapRef.current,
               balls: payload.balls as Ball[],
               bricks: payload.bricks as boolean[],
+              brickOffset: payload.brickOffset as number,
               score: payload.score as number,
               over: payload.over as boolean,
             }
@@ -452,9 +467,11 @@ export default function GamePage() {
         if (!next.over) {
           if (lastNewBallRef.current === 0) lastNewBallRef.current = now
           if (now - lastNewBallRef.current >= 10000 && next.balls.length < 4) {
+            const newBall = makeBall(roomId + restartCountRef.current, next.balls.length)
+            // Nueva pelota + velocidad +5% para todas
             snapRef.current = {
               ...next,
-              balls: [...next.balls, makeBall(roomId + restartCountRef.current, next.balls.length)],
+              balls: [...next.balls, newBall].map(b => ({ ...b, vx: b.vx * 1.05, vy: b.vy * 1.05 })),
             }
             lastNewBallRef.current = now
           }
@@ -466,7 +483,7 @@ export default function GamePage() {
           channelRef.current?.send({
             type: 'broadcast',
             event: 'ball',
-            payload: { balls: snap.balls, bricks: snap.bricks, score: snap.score, over: snap.over },
+            payload: { balls: snap.balls, bricks: snap.bricks, brickOffset: snap.brickOffset, score: snap.score, over: snap.over },
           })
           lastBallSyncRef.current = now
         }
