@@ -154,7 +154,7 @@ function tick(s: Snap): Snap {
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
-function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, isP1: boolean) {
+function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, isP1: boolean, names: { p1: string; p2: string }) {
   const scale = Math.min(sw / W, sh / H)
   const ox = (sw - W * scale) / 2, oy = (sh - H * scale) / 2
 
@@ -220,13 +220,13 @@ function render(ctx: CanvasRenderingContext2D, s: Snap, sw: number, sh: number, 
   ctx.shadowBlur = 0
 
   // Bar labels
-  ctx.font = '11px sans-serif'
+  ctx.font = 'bold 12px sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.fillStyle = isP1 ? '#93c5fd' : '#94a3b8'
-  ctx.fillText(isP1 ? 'TÚ' : 'RIVAL', s.p1x, BAR_Y + BAR_H / 2 + 4)
-  ctx.fillStyle = !isP1 ? '#fca5a5' : '#94a3b8'
-  ctx.fillText(!isP1 ? 'TÚ' : 'RIVAL', s.p2x, BAR_Y + BAR_H / 2 + 4)
+  ctx.fillStyle = '#93c5fd'
+  ctx.fillText(names.p1, s.p1x, BAR_Y + BAR_H / 2 + 4)
+  ctx.fillStyle = '#fca5a5'
+  ctx.fillText(names.p2, s.p2x, BAR_Y + BAR_H / 2 + 4)
 
   // Score (faded center)
   ctx.globalAlpha = 0.18
@@ -273,6 +273,7 @@ export default function GamePage() {
   const remoteLerpRef = useRef(0)      // current smoothed position
   const remoteTargetRef = useRef(0)    // latest received position
 
+  const namesRef = useRef({ p1: 'J1', p2: 'J2' })
   const channelRef = useRef<RealtimeChannel | null>(null)
   const rafRef = useRef(0)
   const lastBarSyncRef = useRef(0)
@@ -306,14 +307,19 @@ export default function GamePage() {
       const pid = localStorage.getItem('duplas_player_id') ?? ''
 
       const storedRole = sessionStorage.getItem(`duplas_role_${roomId}`)
+      // Siempre consultamos la sala para obtener los nombres
+      const { data: room } = await supabase
+        .from('rooms').select('player1_id, player2_id, player1_name, player2_name').eq('id', roomId).single()
+      if (!room) { setError('Sala no encontrada'); return }
+
       if (!storedRole) {
-        // Fallback para acceso directo a la URL: consulta la BD
-        const { data: room } = await supabase
-          .from('rooms').select('player1_id, player2_id').eq('id', roomId).single()
-        if (!room) { setError('Sala no encontrada'); return }
         isP1Ref.current = room.player1_id === pid
       } else {
         isP1Ref.current = storedRole === 'p1'
+      }
+      namesRef.current = {
+        p1: (room.player1_name as string | null) ?? 'J1',
+        p2: (room.player2_name as string | null) ?? 'J2',
       }
       console.log(`[ROL] ${isP1Ref.current ? 'P1 (creador)' : 'P2 (unido)'} — sessionStorage: "${storedRole}"`)
 
@@ -435,7 +441,7 @@ export default function GamePage() {
       const next = tick(withBars)
       snapRef.current = next
 
-      render(ctx, next, c.width, c.height, isP1Ref.current)
+      render(ctx, next, c.width, c.height, isP1Ref.current, namesRef.current)
 
       if (next.over && !gameOverRef.current) {
         gameOverRef.current = true
